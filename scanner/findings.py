@@ -1,0 +1,210 @@
+from datetime import datetime, timezone, timedelta
+from scanner.pricing import (
+    EIP_MONTHLY_COST,
+    get_ec2_cost,
+    get_ebs_cost,
+    get_rds_cost,
+    get_snapshot_cost
+)
+
+USD_TO_INR = 91.94
+
+
+def is_free_tier_eligible(vol):
+    created_at = vol.get('CreateTime')
+    if not created_at:
+        return False
+    age_days = (
+        datetime.now(
+            timezone.utc) -
+        created_at.replace(
+            tzinfo=timezone.utc)).days
+    return age_days < 365
+
+
+def scan_idle_ec2(session, region):
+    ec2 = session.client('ec2', region_name=region)
+    cw = session.client('cloudwatch', region_name=region)
+    findings = []
+
+    response = ec2.describe_instances(
+        Filters=[{'Name': 'instance-state-name', 'Values': ['running']}]
+    )
+
+    for reservation in response['Reservations']:
+        for instance in reservation['Instances']:
+            instance_id = instance['InstanceId']
+            instance_type = instance['InstanceType']
+
+            metrics = cw.get_metric_statistics(
+                Namespace='AWS/EC2',
+                MetricName='CPUUtilization',
+                Dimensions=[{'Name': 'InstanceId', 'Value': instance_id}],
+                StartTime=datetime.now(timezone.utc) - timedelta(days=7),
+                EndTime=datetime.now(timezone.utc),
+                Period=604800,
+                Statistics=['Average']
+            )
+
+            datapoints = metrics.get('Datapoints', [])
+            avg_cpu = datapoints[0]['Average'] if datapoints else 0
+
+            if avg_cpu < 5.0:
+                cost = get_ec2_cost(instance_type)
+                tags = {t['Key']: t['Value'] for t in instance.get('Tags', [])}
+
+                findings.append({
+                    'resource_id': instance_id,
+                    'resource_type': 'EC2',
+                    'region': region,
+                    'reason': f'CPU avg {avg_cpu:.1f}% over 7 days',
+                    'monthly_cost_usd': cost,
+                    'monthly_cost_inr': cost * USD_TO_INR,
+                    'tags': tags,
+                    'detected_at': datetime.now(timezone.utc).isoformat()
+                })
+
+    return findings
+
+
+def scan_orphaned_ebs(session, region):
+    ec2 = session.client('ec2', region_name=region)
+    findings = []
+
+    response = ec2.describe_volumes(
+        Filters=[{'Name': 'status', 'Values': ['available']}]
+    )
+
+    for vol in response['Volumes']:
+        vol_type = vol.get('VolumeType', 'gp2')
+
+        # Skip if under free tier (30GB for first 12 months)
+        if vol['Size'] <= 30 and is_free_tier_eligible(vol):
+            continue
+
+        cost = get_ebs_cost(vol['Size'], vol_type)
+        tags = {t['Key']: t['Value'] for t in vol.get('Tags', [])}
+
+        findings.append({
+            'resource_id': vol['VolumeId'],
+            'resource_type': 'EBS',
+            'region': region,
+            'reason': f'{vol["Size"]}GB {vol_type} unattached',
+            'monthly_cost_usd': cost,
+            'monthly_cost_inr': cost * USD_TO_INR,
+            'tags': tags,
+            'detected_at': datetime.now(timezone.utc).isoformat()
+        })
+
+    return findings
+
+
+def scan_unused_eips(session, region):
+    ec2 = session.client('ec2', region_name=region)
+    findings = []
+
+    response = ec2.describe_addresses()
+
+    for eip in response['Addresses']:
+        # Only charge if not associated with instance
+        if 'InstanceId' not in eip and 'NetworkInterfaceId' not in eip:
+            findings.append({
+                'resource_id': eip['PublicIp'],
+                'resource_type': 'EIP',
+                'region': region,
+                'reason': 'Unassociated (costs $0.005/hour when unused)',
+                'monthly_cost_usd': EIP_MONTHLY_COST,
+                'monthly_cost_inr': EIP_MONTHLY_COST * USD_TO_INR,
+                'tags': {},
+                'detected_at': datetime.now(timezone.utc).isoformat()
+            })
+
+    return findings
+
+
+def scan_idle_rds(session, region):
+    rds = session.client('rds', region_name=region)
+    cw = session.client('cloudwatch', region_name=region)
+    findings = []
+
+    try:
+        response = rds.describe_db_instances()
+    except Exception:
+        return findings
+
+    for db in response.get('DBInstances', []):
+        db_id = db['DBInstanceIdentifier']
+        db_class = db['DBInstanceClass']
+
+        # Estimate RDS cost based on instance class
+        # RDS pricing is handled by scanner.pricing module
+
+        # Check if database has low connections (idle indicator)
+        try:
+            metrics = cw.get_metric_statistics(
+                Namespace='AWS/RDS',
+                MetricName='DatabaseConnections',
+                Dimensions=[{'Name': 'DBInstanceIdentifier', 'Value': db_id}],
+                StartTime=datetime.now(timezone.utc) - timedelta(days=7),
+                EndTime=datetime.now(timezone.utc),
+                Period=604800,
+                Statistics=['Average']
+            )
+
+            datapoints = metrics.get('Datapoints', [])
+            avg_connections = datapoints[0]['Average'] if datapoints else 0
+
+            if avg_connections < 1.0:  # Less than 1 connection on average = idle
+                tags = {t['Key']: t['Value'] for t in db.get('TagList', [])}
+                cost = get_rds_cost(db_class)
+                findings.append({
+                    'resource_id': db_id,
+                    'resource_type': 'RDS',
+                    'region': region,
+                    'reason': f'Avg {avg_connections:.1f} DB connections over 7 days (threshold: 1.0)',
+                    'monthly_cost_usd': cost,
+                    'monthly_cost_inr': cost * USD_TO_INR,
+                    'tags': tags,
+                    'detected_at': datetime.now(timezone.utc).isoformat()
+                })
+        except Exception:
+            continue
+
+    return findings
+
+
+def scan_old_snapshots(session, region):
+    ec2 = session.client('ec2', region_name=region)
+    findings = []
+
+    try:
+        response = ec2.describe_snapshots(OwnerIds=['self'])
+    except Exception:
+        return findings
+
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
+
+    for snapshot in response.get('Snapshots', []):
+        snap_start_time = snapshot['StartTime'].replace(tzinfo=timezone.utc)
+
+        if snap_start_time < cutoff_date:
+            snap_size_gb = snapshot['VolumeSize']
+            snap_cost = get_snapshot_cost(snap_size_gb)
+
+            tags = {t['Key']: t['Value'] for t in snapshot.get('Tags', [])}
+
+            findings.append({
+                'resource_id': snapshot['SnapshotId'],
+                'resource_type': 'EBS_SNAPSHOT' ,
+                'region': region,
+                'reason': (
+                    f'{snap_size_gb}GB snapshot created on '
+                    f'{snap_start_time.date()} (older than 30 days)'
+                ),
+                'monthly_cost_usd': snap_cost,
+                'monthly_cost_inr': snap_cost * USD_TO_INR,
+                'tags': tags,
+                'detected_at': datetime.now(timezone.utc).isoformat()
+            })
+
+    return findings

@@ -1,0 +1,50 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: cloudsweep-db
+    environment:
+      POSTGRES_USER: cloudsweep
+      POSTGRES_PASSWORD: cloudsweep_dev
+      POSTGRES_DB: cloudsweep
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloudsweep"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cloudsweep
+
+  scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cloudsweep-scanner
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://cloudsweep:cloudsweep_dev@postgres:5432/cloudsweep
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ap-south-1
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+    volumes:
+      - ./findings.json:/app/findings.json
+    networks:
+      - cloudsweep
+    profiles:
+      - scanner  # Only run with: docker-compose --profile scanner up
+
+volumes:
+  postgres_data:
+
+networks:
+  cloudsweep:
+    driver: bridge
