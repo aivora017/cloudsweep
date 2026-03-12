@@ -1,0 +1,62 @@
+namespace: cloudsweep
+createNamespace: false
+
+regions: "ap-south-1,us-east-1"
+schedule: "0 2 * * 1"
+cpuIdleThreshold: 5
+ageDaysThreshold: 30
+scanner:
+  image: ghcr.io/aivora017/cloudsweep:latest
+  imagePullPolicy: IfNotPresent
+  serviceAccountName: cloudsweep-scanner
+  useMockFindings: false
+  mockFindingsPath: /app/findings-mock.json
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+postgres:
+  image: postgres:15-alpine
+  imagePullPolicy: IfNotPresent
+  username: cloudsweep
+  password: changeme
+  database: cloudsweep
+  port: 5432
+  storage: 5Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+slack:
+  enabled: true
+  webhook: ""
+
+persistence:
+  enabled: true
+  storageClass: standard
+  size: 5Gi
+
+aws:
+  # AWS credentials for scanner to run (required)
+  # Can be set via: helm install ... --set aws.accessKeyId=xxx --set aws.secretAccessKey=yyy
+  # Or use IAM roles in AWS EKS instead
+  accessKeyId: ""
+  secretAccessKey: ""
+  sessionToken: ""  # Optional: for temporary STS credentials
+  region: ap-south-1
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    interval: 60s
+
+networkPolicy:
+  enabled: true

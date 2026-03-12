@@ -1,0 +1,60 @@
+namespace: cloudsweep
+
+regions: "ap-south-1"
+schedule: "0 2 * * 1"
+cpuIdleThreshold: 10
+ageDaysThreshold: 14
+slackWebhook: ""
+
+scanner:
+  image: cloudsweep:local
+  imagePullPolicy: Never
+  serviceAccountName: cloudsweep-scanner
+  useMockFindings: true
+  mockFindingsPath: /app/findings-mock.json
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+postgres:
+  image: postgres:15-alpine
+  imagePullPolicy: IfNotPresent
+  username: cloudsweep
+  password: changeme
+  database: cloudsweep
+  port: 5432
+  storage: 2Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+
+persistence:
+  enabled: true
+  storageClass: local-path
+  size: 2Gi
+
+slack:
+  enabled: false
+  webhook: ""
+
+aws:
+  accessKeyId: ""
+  secretAccessKey: ""
+  sessionToken: ""
+  region: ap-south-1
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    interval: 60s
+
+networkPolicy:
+  enabled: true

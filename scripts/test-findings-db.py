@@ -10,9 +10,7 @@ import sys
 import os
 from datetime import datetime, timezone
 
-sys.path.insert(0, '/home/sourav/cloudsweep')
-
-from db.manager import DatabaseManager
+from scanner.db import ScannerDB
 
 
 def create_sample_findings():
@@ -89,7 +87,7 @@ def main():
     
     try:
         # Connect to database
-        db = DatabaseManager(db_url)
+        db = ScannerDB(db_url)
         print("Connected to database successfully!")
         
         # Create sample findings
@@ -101,12 +99,8 @@ def main():
         print(f"  - Findings count: {len(findings)}")
         print(f"  - Total waste: ₹{sum(f['monthly_cost_inr'] for f in findings):,.2f}/month")
         
-        # Insert scan run
-        scan_run_id = db.insert_scan_run(regions, findings)
+        scan_run_id = db.insert_findings(regions, findings)
         print(f"\nInserted scan_run with ID: {scan_run_id}")
-        
-        # Insert findings
-        db.insert_findings(scan_run_id, findings)
         print(f"Inserted {len(findings)} findings")
         
         # Verify data was stored

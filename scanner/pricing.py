@@ -1,9 +1,14 @@
-"""EC2 and EBS pricing loader - loads from CSV instance cost list"""
+"""Pricing helpers with AWS Pricing API + CSV fallback and INR conversion."""
 import os
 import csv
 from typing import Dict
+from functools import lru_cache
+
+import boto3
+import httpx
 
 HOURS_PER_MONTH = 730  # Average hours per month
+DEFAULT_USD_TO_INR = float(os.getenv('USD_TO_INR', '91.94'))
 
 PRICING_DIR = os.path.join(
     os.path.dirname(__file__),
@@ -36,6 +41,33 @@ EBS_SNAPSHOT_PRICING = 0.05  # $0.05 per GB-month
 # EIP pricing (for unassociated IPs)
 EIP_HOURLY_COST = 0.005  # $0.005/hour when not associated
 EIP_MONTHLY_COST = EIP_HOURLY_COST * HOURS_PER_MONTH
+
+
+def convert_usd_to_inr(usd_amount: float, rate: float | None = None) -> float:
+    fx_rate = rate if rate is not None else get_usd_to_inr_rate()
+    return usd_amount * fx_rate
+
+
+@lru_cache(maxsize=1)
+def get_usd_to_inr_rate() -> float:
+    """Fetch USD/INR and fallback to configured default."""
+    url = "https://api.exchangerate.host/latest"
+    params = {"base": "USD", "symbols": "INR"}
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get(url, params=params)
+            response.raise_for_status()
+            rate = response.json().get('rates', {}).get('INR')
+            if isinstance(rate, (int, float)) and rate > 0:
+                return float(rate)
+    except Exception:
+        pass
+    return DEFAULT_USD_TO_INR
+
+
+def _get_pricing_client():
+    """AWS Pricing is only available in us-east-1 endpoint."""
+    return boto3.client('pricing', region_name='us-east-1')
 
 
 def load_ec2_pricing_from_csv() -> Dict[str, float]:
@@ -101,6 +133,50 @@ def get_ec2_cost(instance_type: str, default: float = 30.0) -> float:
     Returns:
         Monthly USD cost for the instance type
     """
+    try:
+        pricing = _get_pricing_client()
+        response = pricing.get_products(
+            ServiceCode='AmazonEC2',
+            Filters=[
+                  {
+                      'Type': 'TERM_MATCH',
+                      'Field': 'instanceType',
+                      'Value': instance_type,
+                  },
+                  {
+                      'Type': 'TERM_MATCH',
+                      'Field': 'operatingSystem',
+                      'Value': 'Linux',
+                  },
+                  {
+                      'Type': 'TERM_MATCH',
+                      'Field': 'tenancy',
+                      'Value': 'Shared',
+                  },
+                  {
+                      'Type': 'TERM_MATCH',
+                      'Field': 'capacitystatus',
+                      'Value': 'Used',
+                  },
+                  {
+                      'Type': 'TERM_MATCH',
+                      'Field': 'preInstalledSw',
+                      'Value': 'NA',
+                  },
+            ],
+            MaxResults=1,
+        )
+        if response.get('PriceList'):
+            offer = response['PriceList'][0]
+            terms = offer.get('terms', {}).get('OnDemand', {})
+            for _, term in terms.items():
+                dimensions = term.get('priceDimensions', {})
+                for _, dim in dimensions.items():
+                    price = float(dim.get('pricePerUnit', {}).get('USD', '0'))
+                    if price > 0:
+                        return price * HOURS_PER_MONTH
+    except Exception:
+        pass
     return EC2_PRICING.get(instance_type, default)
 
 

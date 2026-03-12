@@ -1,0 +1,58 @@
+namespace: cloudsweep
+
+regions: "ap-south-1,us-east-1,us-west-2"
+schedule: "0 2 * * 1"
+cpuIdleThreshold: 5
+ageDaysThreshold: 30
+slackWebhook: ""
+
+scanner:
+  image: ghcr.io/aivora017/cloudsweep:latest
+  imagePullPolicy: IfNotPresent
+  serviceAccountName: cloudsweep-scanner
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+postgres:
+  image: postgres:15-alpine
+  imagePullPolicy: IfNotPresent
+  username: cloudsweep
+  password: changeme
+  database: cloudsweep
+  port: 5432
+  storage: 20Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+persistence:
+  enabled: true
+  storageClass: ""
+  size: 20Gi
+
+slack:
+  enabled: true
+  webhook: ""
+
+aws:
+  accessKeyId: ""
+  secretAccessKey: ""
+  sessionToken: ""
+  region: ap-south-1
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+
+networkPolicy:
+  enabled: true
