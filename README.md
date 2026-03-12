@@ -69,31 +69,14 @@ Install on k3s:
 helm install cloudsweep ./helm/cloudsweep --namespace cloudsweep --create-namespace
 ```
 
-## Phase 2 result
+## Progress
 
-Verified on local k3s:
+This project is being built phase by phase:
 
-- k3s node Ready
-- Helm release deployed
-- CronJob schedule active: `0 2 * * 1`
-- PostgreSQL StatefulSet running
-- PostgreSQL PVC bound
-- Manual trigger completed successfully
-- Findings stored in PostgreSQL with INR values
+- Phase 1: basic scanner and CLI
+- Phase 2: Helm chart, k3s deployment, and PostgreSQL integration
 
-Latest proof run:
-
-- 6 findings
-- total waste: `₹6433.41`
-- latest stored scan: `scan_run_id: 17`
-
-## Tests
-
-```bash
-pytest -q
-```
-
-Current result: `22 passed`
+All verification is done manually (see Helm/k3s proof steps above).
 
 ## Layout
 
@@ -103,5 +86,4 @@ notifier/     Slack notifier
 db/           SQL migration
 helm/         Helm chart
 scripts/      helper scripts
-tests/        unit tests
 ```
