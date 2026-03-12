@@ -1,0 +1,86 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "cloudsweep.fullname" . }}-scanner
+  namespace: {{ .Values.namespace }}
+spec:
+  schedule: {{ .Values.schedule | quote }}
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: {{ include "cloudsweep.name" . }}
+            app.kubernetes.io/component: scanner
+        spec:
+          serviceAccountName: {{ .Values.scanner.serviceAccountName }}
+          {{- if .Values.scanner.imagePullSecrets }}
+          imagePullSecrets:
+          {{- range .Values.scanner.imagePullSecrets }}
+          - name: {{ . }}
+          {{- end }}
+          {{- end }}
+          containers:
+          - name: scanner
+            image: {{ .Values.scanner.image }}
+            imagePullPolicy: {{ .Values.scanner.imagePullPolicy }}
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cloudsweep.fullname" . }}-secret
+                  key: database-url
+            - name: REGIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cloudsweep.fullname" . }}-config
+                  key: regions
+            {{- if .Values.slack.webhook }}
+            - name: SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cloudsweep.fullname" . }}-secret
+                  key: slack-webhook
+            {{- end }}
+            - name: AWS_DEFAULT_REGION
+              value: {{ .Values.aws.region | quote }}
+            {{- if .Values.scanner.useMockFindings }}
+            - name: USE_MOCK_FINDINGS
+              value: "true"
+            - name: MOCK_FINDINGS_PATH
+              value: {{ .Values.scanner.mockFindingsPath | quote }}
+            {{- end }}
+            {{- if and .Values.aws.accessKeyId .Values.aws.secretAccessKey }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cloudsweep.fullname" . }}-secret
+                  key: access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cloudsweep.fullname" . }}-secret
+                  key: secret-access-key
+            {{- end }}
+            {{- if .Values.aws.sessionToken }}
+            - name: AWS_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cloudsweep.fullname" . }}-secret
+                  key: session-token
+            {{- end }}
+            args:
+            - --regions
+            - $(REGIONS)
+            {{- if .Values.slack.webhook }}
+            - --slack
+            {{- end }}
+            resources:
+              requests:
+                cpu: {{ .Values.scanner.resources.requests.cpu }}
+                memory: {{ .Values.scanner.resources.requests.memory }}
+              limits:
+                cpu: {{ .Values.scanner.resources.limits.cpu }}
+                memory: {{ .Values.scanner.resources.limits.memory }}
+          restartPolicy: OnFailure

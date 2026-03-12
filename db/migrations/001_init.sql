@@ -1,5 +1,5 @@
 -- CloudSweep Database Schema
--- migrations/001_init.sql
+-- db/migrations/001_init.sql
 
 CREATE TABLE IF NOT EXISTS scan_runs (
     id          SERIAL PRIMARY KEY,
@@ -64,3 +64,23 @@ WHERE f.resolved_at IS NULL
   AND sr.scanned_at >= NOW() - INTERVAL '12 weeks'
 GROUP BY DATE(sr.scanned_at), f.resource_type
 ORDER BY DATE(sr.scanned_at) DESC, f.resource_type;
+
+-- Function: Resolve findings not found in latest scan
+CREATE OR REPLACE FUNCTION resolve_missing_findings(
+    p_scan_run_id INT,
+    p_found_resources TEXT[]
+) RETURNS INT AS $$
+DECLARE
+    v_resolved_count INT := 0;
+BEGIN
+    UPDATE findings
+    SET resolved_at = NOW(),
+        updated_at = NOW()
+    WHERE scan_run_id = p_scan_run_id
+      AND resource_id = ANY(p_found_resources) IS FALSE
+      AND resolved_at IS NULL;
+    
+    GET DIAGNOSTICS v_resolved_count = ROW_COUNT;
+    RETURN v_resolved_count;
+END;
+$$ LANGUAGE plpgsql;

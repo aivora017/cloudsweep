@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cloudsweep.fullname" . }}-migrate
+  namespace: {{ .Values.namespace }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  template:
+    spec:
+      serviceAccountName: {{ .Values.scanner.serviceAccountName }}
+      containers:
+      - name: migrate
+        image: {{ .Values.postgres.image }}
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "cloudsweep.fullname" . }}-secret
+              key: postgres-password
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until pg_isready -h {{ include "postgres.host" . }} -p {{ include "postgres.port" . }} -U {{ .Values.postgres.username }}; do
+            echo "Waiting for postgres..."
+            sleep 2
+          done
+          psql -h {{ include "postgres.host" . }} -U {{ .Values.postgres.username }} -d {{ include "postgres.database" . }} < /migrations/001_init.sql
+        volumeMounts:
+        - name: migrations
+          mountPath: /migrations
+      volumes:
+      - name: migrations
+        configMap:
+          name: {{ include "cloudsweep.fullname" . }}-migrations
+      restartPolicy: Never

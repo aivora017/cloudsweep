@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cloudsweep.fullname" . }}-migrations
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cloudsweep.labels" . | nindent 4 }}
+data:
+  001_init.sql: |
+    -- CloudSweep Database Schema
+        -- db/migrations/001_init.sql
+
+    CREATE TABLE IF NOT EXISTS scan_runs (
+        id          SERIAL PRIMARY KEY,
+        scanned_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        regions     TEXT[],
+        total_findings INT,
+        total_waste_usd NUMERIC(10,2),
+        total_waste_inr NUMERIC(12,2),
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS findings (
+        id              BIGSERIAL PRIMARY KEY,
+        scan_run_id     INT REFERENCES scan_runs(id) ON DELETE CASCADE,
+        resource_id     TEXT NOT NULL,
+        resource_type   TEXT NOT NULL,
+        region          TEXT NOT NULL,
+        reason          TEXT,
+        monthly_cost_usd NUMERIC(10,2),
+        monthly_cost_inr NUMERIC(12,2),
+        tags            JSONB,
+        detected_at     TIMESTAMPTZ,
+        resolved_at     TIMESTAMPTZ,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    -- Indexes for faster queries
+    CREATE INDEX IF NOT EXISTS idx_findings_scan_run_id ON findings(scan_run_id);
+    CREATE INDEX IF NOT EXISTS idx_findings_resource_type ON findings(resource_type);
+    CREATE INDEX IF NOT EXISTS idx_findings_region ON findings(region);
+    CREATE INDEX IF NOT EXISTS idx_findings_resolved_at ON findings(resolved_at);
+    CREATE INDEX IF NOT EXISTS idx_scan_runs_scanned_at ON scan_runs(scanned_at);
+
+    -- View: Active waste (not yet resolved)
+    CREATE OR REPLACE VIEW active_waste AS
+    SELECT 
+        f.resource_id,
+        f.resource_type,
+        f.region,
+        f.reason,
+        f.monthly_cost_usd,
+        f.monthly_cost_inr,
+        f.detected_at,
+        s.scanned_at as last_detected_at
+    FROM findings f
+    JOIN scan_runs s ON f.scan_run_id = s.id
+    WHERE f.resolved_at IS NULL
+    ORDER BY f.monthly_cost_inr DESC;
+
+    -- View: 12-week waste trend
+    CREATE OR REPLACE VIEW waste_trend_12w AS
+    SELECT
+        DATE(sr.scanned_at) as scan_date,
+        f.resource_type,
+        COUNT(*) as finding_count,
+        SUM(f.monthly_cost_inr) as total_waste_inr,
+        SUM(f.monthly_cost_usd) as total_waste_usd
+    FROM scan_runs sr
+    JOIN findings f ON sr.id = f.scan_run_id
+    WHERE f.resolved_at IS NULL
+      AND sr.scanned_at >= NOW() - INTERVAL '12 weeks'
+    GROUP BY DATE(sr.scanned_at), f.resource_type
+    ORDER BY DATE(sr.scanned_at) DESC, f.resource_type;
+
+    -- Function: Resolve findings not found in latest scan
+    CREATE OR REPLACE FUNCTION resolve_missing_findings(
+        p_scan_run_id INT,
+        p_found_resources TEXT[]
+    ) RETURNS INT AS $$
+    DECLARE
+        v_resolved_count INT := 0;
+    BEGIN
+        UPDATE findings
+        SET resolved_at = NOW(),
+            updated_at = NOW()
+        WHERE scan_run_id = p_scan_run_id
+          AND resource_id = ANY(p_found_resources) IS FALSE
+          AND resolved_at IS NULL;
+        
+        GET DIAGNOSTICS v_resolved_count = ROW_COUNT;
+        RETURN v_resolved_count;
+    END;
+    $$ LANGUAGE plpgsql;

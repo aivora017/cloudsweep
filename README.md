@@ -1,96 +1,107 @@
 # CloudSweep
 
-AWS cost optimization scanner. Identifies waste in your AWS account.
+CloudSweep scans AWS for idle resources and estimates monthly waste in USD and INR.
 
-## What it does
+## Scope
 
-Scans your AWS account for idle resources:
-- EC2 instances with low CPU (< 5% over 7 days)
-- Orphaned EBS volumes (unattached)
+- EC2 instances with low CPU usage
+- Unattached EBS volumes
 - Unused Elastic IPs
-- Idle RDS instances (low connections)
-- Old snapshots (> 30 days)
+- Underused RDS instances
+- Old EBS snapshots
 
-Returns findings as JSON with monthly cost in USD and INR.
+Results are written as JSON and can also be stored in PostgreSQL.
 
-## Setup
+## Local setup
 
 ```bash
-git clone https://github.com/aivora017/cloudsweep.git
-cd cloudsweep
-
-python -m venv venv
-source venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Configure AWS credentials:
+Set AWS credentials before running a real scan:
+
 ```bash
 export AWS_ACCESS_KEY_ID=xxx
 export AWS_SECRET_ACCESS_KEY=xxx
 export AWS_DEFAULT_REGION=ap-south-1
 ```
 
-## Run the scanner
+## Run
+
+Directly:
 
 ```bash
 python -m scanner.main --regions ap-south-1,us-east-1 --output findings.json
 ```
 
-Or with Docker:
+With helper script:
+
+```bash
+./scripts/run-scan.sh
+```
+
+With Docker Compose:
+
 ```bash
 docker-compose up postgres
 docker-compose --profile scanner up
 ```
 
-## Output
+## Helm
 
-```json
-{
-  "findings": [
-    {
-      "resource_id": "i-123456",
-      "resource_type": "EC2",
-      "region": "ap-south-1",
-      "reason": "CPU avg 2.3% over 7 days",
-      "monthly_cost_usd": 30.50,
-      "monthly_cost_inr": 2547.75,
-      "tags": {"Name": "test-server"},
-      "detected_at": "2026-03-06T10:30:45Z"
-    }
-  ],
-  "summary": {
-    "total_findings": 1,
-    "total_waste_usd": 30.50,
-    "total_waste_inr": 2547.75,
-    "regions_scanned": ["ap-south-1"],
-    "scanned_at": "2026-03-06T10:30:45Z"
-  }
-}
+The Helm chart is in `helm/cloudsweep`.
+
+Useful files:
+
+- `helm/cloudsweep/values.yaml`
+- `helm/cloudsweep/values-dev.yaml`
+- `helm/cloudsweep/values-prod.yaml`
+- `helm/cloudsweep/templates/cronjob.yaml`
+- `helm/cloudsweep/templates/postgresql-statefulset.yaml`
+- `helm/cloudsweep/templates/postgresql-service.yaml`
+- `helm/cloudsweep/templates/pre-install-job.yaml`
+
+Install on k3s:
+
+```bash
+helm install cloudsweep ./helm/cloudsweep --namespace cloudsweep --create-namespace
 ```
 
-## Project structure
+## Phase 2 result
 
-```
-scanner/          - Scanning functions
-notifier/         - Slack integration
-db/               - PostgreSQL schema and manager
-tests/            - Unit tests
-scripts/          - Utilities
-ec2_pricing/      - Instance pricing data (CSV)
-```
+Verified on local k3s:
+
+- k3s node Ready
+- Helm release deployed
+- CronJob schedule active: `0 2 * * 1`
+- PostgreSQL StatefulSet running
+- PostgreSQL PVC bound
+- Manual trigger completed successfully
+- Findings stored in PostgreSQL with INR values
+
+Latest proof run:
+
+- 6 findings
+- total waste: `₹6433.41`
+- latest stored scan: `scan_run_id: 17`
 
 ## Tests
 
 ```bash
-pytest tests/ -v
+pytest -q
 ```
 
-All 5 scan functions tested with moto (AWS mocks).
+Current result: `22 passed`
 
-## Requirements
+## Layout
 
-- Python 3.11+
-- boto3
-- PostgreSQL
-- Docker (optional)
+```text
+scanner/      scanner code
+notifier/     Slack notifier
+db/           SQL migration
+helm/         Helm chart
+scripts/      helper scripts
+tests/        unit tests
+```

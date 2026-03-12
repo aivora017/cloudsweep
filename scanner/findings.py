@@ -1,13 +1,13 @@
 from datetime import datetime, timezone, timedelta
+import os
 from scanner.pricing import (
     EIP_MONTHLY_COST,
+    convert_usd_to_inr,
     get_ec2_cost,
     get_ebs_cost,
     get_rds_cost,
     get_snapshot_cost
 )
-
-USD_TO_INR = 91.94
 
 
 def is_free_tier_eligible(vol):
@@ -26,6 +26,8 @@ def scan_idle_ec2(session, region):
     ec2 = session.client('ec2', region_name=region)
     cw = session.client('cloudwatch', region_name=region)
     findings = []
+
+    cpu_idle_threshold = float(os.getenv('CPU_IDLE_THRESHOLD', '5'))
 
     response = ec2.describe_instances(
         Filters=[{'Name': 'instance-state-name', 'Values': ['running']}]
@@ -49,7 +51,7 @@ def scan_idle_ec2(session, region):
             datapoints = metrics.get('Datapoints', [])
             avg_cpu = datapoints[0]['Average'] if datapoints else 0
 
-            if avg_cpu < 5.0:
+            if avg_cpu < cpu_idle_threshold:
                 cost = get_ec2_cost(instance_type)
                 tags = {t['Key']: t['Value'] for t in instance.get('Tags', [])}
 
@@ -57,9 +59,12 @@ def scan_idle_ec2(session, region):
                     'resource_id': instance_id,
                     'resource_type': 'EC2',
                     'region': region,
-                    'reason': f'CPU avg {avg_cpu:.1f}% over 7 days',
+                    'reason': (
+                        f'CPU avg {avg_cpu:.1f}% over 7 days '
+                        f'(threshold: {cpu_idle_threshold:.1f}%)'
+                    ),
                     'monthly_cost_usd': cost,
-                    'monthly_cost_inr': cost * USD_TO_INR,
+                    'monthly_cost_inr': convert_usd_to_inr(cost),
                     'tags': tags,
                     'detected_at': datetime.now(timezone.utc).isoformat()
                 })
@@ -91,7 +96,7 @@ def scan_orphaned_ebs(session, region):
             'region': region,
             'reason': f'{vol["Size"]}GB {vol_type} unattached',
             'monthly_cost_usd': cost,
-            'monthly_cost_inr': cost * USD_TO_INR,
+            'monthly_cost_inr': convert_usd_to_inr(cost),
             'tags': tags,
             'detected_at': datetime.now(timezone.utc).isoformat()
         })
@@ -99,7 +104,7 @@ def scan_orphaned_ebs(session, region):
     return findings
 
 
-def scan_unused_eips(session, region):
+def scan_unused_eip(session, region):
     ec2 = session.client('ec2', region_name=region)
     findings = []
 
@@ -107,14 +112,18 @@ def scan_unused_eips(session, region):
 
     for eip in response['Addresses']:
         # Only charge if not associated with instance
-        if 'InstanceId' not in eip and 'NetworkInterfaceId' not in eip:
+        if (
+            not eip.get('InstanceId')
+            and not eip.get('NetworkInterfaceId')
+            and not eip.get('AssociationId')
+        ):
             findings.append({
                 'resource_id': eip['PublicIp'],
                 'resource_type': 'EIP',
                 'region': region,
                 'reason': 'Unassociated (costs $0.005/hour when unused)',
                 'monthly_cost_usd': EIP_MONTHLY_COST,
-                'monthly_cost_inr': EIP_MONTHLY_COST * USD_TO_INR,
+                'monthly_cost_inr': convert_usd_to_inr(EIP_MONTHLY_COST),
                 'tags': {},
                 'detected_at': datetime.now(timezone.utc).isoformat()
             })
@@ -122,7 +131,7 @@ def scan_unused_eips(session, region):
     return findings
 
 
-def scan_idle_rds(session, region):
+def scan_underused_rds(session, region):
     rds = session.client('rds', region_name=region)
     cw = session.client('cloudwatch', region_name=region)
     findings = []
@@ -147,23 +156,32 @@ def scan_idle_rds(session, region):
                 Dimensions=[{'Name': 'DBInstanceIdentifier', 'Value': db_id}],
                 StartTime=datetime.now(timezone.utc) - timedelta(days=7),
                 EndTime=datetime.now(timezone.utc),
-                Period=604800,
+                Period=86400,
                 Statistics=['Average']
             )
 
             datapoints = metrics.get('Datapoints', [])
-            avg_connections = datapoints[0]['Average'] if datapoints else 0
+            if datapoints:
+                avg_connections = (
+                    sum(p.get('Average', 0) for p in datapoints)
+                    / len(datapoints)
+                )
+            else:
+                avg_connections = 0
 
-            if avg_connections < 1.0:  # Less than 1 connection on average = idle
+            if avg_connections < 5.0:
                 tags = {t['Key']: t['Value'] for t in db.get('TagList', [])}
                 cost = get_rds_cost(db_class)
                 findings.append({
                     'resource_id': db_id,
                     'resource_type': 'RDS',
                     'region': region,
-                    'reason': f'Avg {avg_connections:.1f} DB connections over 7 days (threshold: 1.0)',
+                    'reason': (
+                        f'Avg {avg_connections:.1f} DB connections/day '
+                        'over 7 days (threshold: 5.0)'
+                    ),
                     'monthly_cost_usd': cost,
-                    'monthly_cost_inr': cost * USD_TO_INR,
+                    'monthly_cost_inr': convert_usd_to_inr(cost),
                     'tags': tags,
                     'detected_at': datetime.now(timezone.utc).isoformat()
                 })
@@ -195,16 +213,26 @@ def scan_old_snapshots(session, region):
 
             findings.append({
                 'resource_id': snapshot['SnapshotId'],
-                'resource_type': 'EBS_SNAPSHOT' ,
+                'resource_type': 'EBS_SNAPSHOT',
                 'region': region,
                 'reason': (
                     f'{snap_size_gb}GB snapshot created on '
                     f'{snap_start_time.date()} (older than 30 days)'
                 ),
                 'monthly_cost_usd': snap_cost,
-                'monthly_cost_inr': snap_cost * USD_TO_INR,
+                'monthly_cost_inr': convert_usd_to_inr(snap_cost),
                 'tags': tags,
                 'detected_at': datetime.now(timezone.utc).isoformat()
             })
 
     return findings
+
+
+def scan_unused_eips(session, region):
+    """Backward-compatible alias."""
+    return scan_unused_eip(session, region)
+
+
+def scan_idle_rds(session, region):
+    """Backward-compatible alias."""
+    return scan_underused_rds(session, region)

@@ -1,5 +1,5 @@
 import os
-import requests
+import httpx
 from datetime import datetime
 from typing import List, Dict, Optional
 
@@ -57,7 +57,9 @@ class SlackNotifier:
 
         for rtype, items in sorted(grouped.items()):
             waste_inr = sum(f['monthly_cost_inr'] for f in items)
-            lines = [f"*{rtype}* ({len(items)} resources) — ₹{waste_inr:,.2f}/mo"]
+            lines = [
+                f"*{rtype}* ({len(items)} resources) — ₹{waste_inr:,.2f}/mo"
+            ]
 
             sorted_items = sorted(
                 items,
@@ -73,7 +75,7 @@ class SlackNotifier:
                 lines.append(f"  ... +{len(items) - 3} more")
 
             text = "\n".join(lines)
-            
+
             blocks.append({
                 "type": "section",
                 "text": {
@@ -81,26 +83,39 @@ class SlackNotifier:
                     "text": text.strip()
                 }
             })
-        
+
         blocks.append({
             "type": "context",
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"Scanned at {datetime.now().strftime('%Y-%m-%d %H:%M IST')} | <https://grafana.example.com|View Trends>"
+                    "text": (
+                        "Scanned at "
+                        f"{datetime.now().strftime('%Y-%m-%d %H:%M IST')}"
+                        " | <https://grafana.example.com|View Trends>"
+                    )
                 }
             ]
         })
-        
+
         payload = {"blocks": blocks}
         self._send_payload(payload)
-    
-    def send_threshold_alert(self, findings: List[Dict], summary: Dict):
+
+    def send_threshold_alert(
+        self,
+        findings: List[Dict],
+        summary: Dict,
+    ):
         total_waste_inr = summary['total_waste_inr']
         threshold = 50000
 
         if total_waste_inr > threshold:
-            text = f"CRITICAL ALERT\nMonthly AWS waste: ₹{total_waste_inr:,.2f} (threshold: ₹{threshold:,})\n{summary['total_findings']} resources identified for cleanup"
+            text = (
+                "CRITICAL ALERT\n"
+                f"Monthly AWS waste: ₹{total_waste_inr:,.2f} "
+                f"(threshold: ₹{threshold:,})\n"
+                f"{summary['total_findings']} resources identified for cleanup"
+            )
             self.send_message(text)
 
     def send_message(self, text: str):
@@ -111,13 +126,10 @@ class SlackNotifier:
 
     def _send_payload(self, payload: Dict):
         try:
-            response = requests.post(
-                self.webhook_url,
-                json=payload,
-                timeout=10
-            )
-            response.raise_for_status()
-        except requests.exceptions.RequestException as e:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.post(self.webhook_url, json=payload)
+                response.raise_for_status()
+        except httpx.HTTPError as e:
             print(f"Error sending Slack notification: {e}")
         except Exception as e:
             print(f"Unexpected error: {e}")
