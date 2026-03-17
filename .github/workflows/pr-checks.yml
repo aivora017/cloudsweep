@@ -27,7 +27,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run flake8
-        run: flake8 scanner notifier
+        run: flake8 scanner notifier db
 
       - name: Run bandit
         run: bandit -r scanner notifier -q -s B110,B112
