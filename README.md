@@ -69,14 +69,45 @@ Install on k3s:
 helm install cloudsweep ./helm/cloudsweep --namespace cloudsweep --create-namespace
 ```
 
+## CI/CD
+
+GitHub Actions handles two things:
+
+- `pr-checks.yml` runs on every pull request to main: flake8, bandit, pytest, and Dockerfile lint
+- `scheduled-scan.yml` runs every Monday at 2AM UTC (7:30AM IST) via cron, plus a manual trigger button
+
+AWS credentials in GitHub Actions use OIDC — no long-lived keys stored as secrets. Add these secrets to the repo:
+
+- `AWS_ROLE_ARN` — IAM role ARN with read-only AWS access
+- `DATABASE_URL` — PostgreSQL connection string
+- `SLACK_WEBHOOK_URL` — Slack incoming webhook
+
+Jenkins handles code changes through a four-stage pipeline: Lint → Test → Build and Push → Deploy. The `Jenkinsfile` is at the repo root. On feature branches only Lint and Test run. On main the full pipeline runs including Docker push to ghcr.io and Helm deploy.
+
+Shared library functions are in `vars/` and get loaded when Jenkins is configured with this repo as a library named `cloudsweep`.
+
+Jenkins setup:
+
+```bash
+docker run -d \
+  --name jenkins \
+  -p 8081:8080 \
+  -p 50000:50000 \
+  -v jenkins_home:/var/jenkins_home \
+  jenkins/jenkins:lts
+```
+
+Install plugins: Git, Docker Pipeline, Kubernetes CLI, Slack Notification.
+
+Add credentials in Jenkins: `ghcr-token` (username/password), `kubeconfig` (secret file), `db-url` (secret text).
+
 ## Progress
 
 This project is being built phase by phase:
 
 - Phase 1: basic scanner and CLI
 - Phase 2: Helm chart, k3s deployment, and PostgreSQL integration
-
-All verification is done manually (see Helm/k3s proof steps above).
+- Phase 3: GitHub Actions scheduled scan and Jenkins CI/CD pipeline
 
 ## Layout
 
@@ -86,4 +117,5 @@ notifier/     Slack notifier
 db/           SQL migration
 helm/         Helm chart
 scripts/      helper scripts
+vars/         Jenkins shared library functions
 ```
