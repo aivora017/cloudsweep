@@ -7,7 +7,8 @@ from scanner.findings import (
     scan_orphaned_ebs,
     scan_unused_eips,
     scan_idle_rds,
-    scan_old_snapshots
+    scan_old_snapshots,
+    is_free_tier_eligible
 )
 
 @pytest.fixture
@@ -171,6 +172,20 @@ def test_scan_functions_handle_empty_results(session):
     with mock_ec2():
         findings = scan_orphaned_ebs(session, region)
         assert findings == []
+
+def test_free_tier_eligible_no_create_time():
+    assert is_free_tier_eligible({}) is False
+
+
+def test_free_tier_eligible_recent_volume():
+    vol = {'CreateTime': datetime.now(timezone.utc) - timedelta(days=10)}
+    assert is_free_tier_eligible(vol) is True
+
+
+def test_free_tier_eligible_old_volume():
+    vol = {'CreateTime': datetime.now(timezone.utc) - timedelta(days=400)}
+    assert is_free_tier_eligible(vol) is False
+
 
 def test_findings_have_required_fields(session):
     """Test that all findings have required fields"""
