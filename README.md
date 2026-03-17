@@ -94,7 +94,15 @@ docker run -d \
   -p 8081:8080 \
   -p 50000:50000 \
   -v jenkins_home:/var/jenkins_home \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   jenkins/jenkins:lts
+```
+
+Then install Docker CLI inside the container so Jenkins can run Docker agents:
+
+```bash
+docker exec -u root jenkins apt-get update -qq && \
+docker exec -u root jenkins apt-get install -y docker.io
 ```
 
 Install plugins: Git, Docker Pipeline, Kubernetes CLI, Slack Notification.
