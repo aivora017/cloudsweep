@@ -1,7 +1,12 @@
 @Library('cloudsweep') _
 
 pipeline {
-    agent any
+    agent {
+        docker {
+            image 'python:3.11-slim'
+            args '-v /var/run/docker.sock:/var/run/docker.sock'
+        }
+    }
 
     environment {
         IMAGE = 'ghcr.io/aivora017/cloudsweep'
@@ -11,7 +16,7 @@ pipeline {
     stages {
         stage('Lint') {
             steps {
-                sh 'pip install flake8 bandit'
+                sh 'pip install flake8 bandit --quiet'
                 sh 'flake8 scanner/ notifier/ db/'
                 sh 'bandit -r scanner/ notifier/ -ll'
             }
@@ -19,7 +24,7 @@ pipeline {
 
         stage('Test') {
             steps {
-                sh 'pip install -r requirements.txt'
+                sh 'pip install -r requirements.txt --quiet'
                 sh 'pytest tests/ --cov=scanner --cov=notifier --cov-report=xml --cov-fail-under=85'
             }
         }
