@@ -61,7 +61,7 @@ pipeline {
             }
         }
         failure {
-            slackSend(channel: '#alerts', message: "Build failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}")
+            echo "Build failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
         }
     }
 }
