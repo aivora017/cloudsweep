@@ -2,6 +2,7 @@ import click
 import json
 import boto3
 import os
+import time
 from datetime import datetime
 from scanner.findings import (
     scan_idle_ec2,
@@ -22,6 +23,12 @@ try:
     HAS_SLACK = True
 except ImportError:
     HAS_SLACK = False
+
+try:
+    from scanner.metrics import push_metrics
+    HAS_METRICS = True
+except ImportError:
+    HAS_METRICS = False
 
 
 def _strtobool(value: str) -> bool:
@@ -75,6 +82,7 @@ def main(regions, output, no_db, slack, dry_run):
         )
 
     all_findings = []
+    scan_start = time.time()
 
     click.echo('CloudSweep Scanner')
     click.echo(f'Scanning regions: {", ".join(region_list)}')
@@ -151,6 +159,14 @@ def main(regions, output, no_db, slack, dry_run):
             click.echo('Slack notification sent')
         except Exception as e:
             click.echo(f'Slack notification failed: {str(e)}', err=True)
+
+    if not dry_run and HAS_METRICS and os.getenv('PUSHGATEWAY_URL'):
+        try:
+            scan_duration = time.time() - scan_start
+            push_metrics(all_findings, result['summary'], scan_duration)
+            click.echo('Metrics pushed to Pushgateway')
+        except Exception as e:
+            click.echo(f'Metrics push failed: {str(e)}', err=True)
 
     if dry_run:
         click.echo(

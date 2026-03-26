@@ -2,18 +2,20 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: {{ include "cloudsweep.fullname" . }}-postgres
+  name: {{ include "cloudsweep.fullname" . }}-pushgateway
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "cloudsweep.labels" . | nindent 4 }}
+    release: kube-prometheus-stack
 spec:
   selector:
     matchLabels:
-      app: postgres
+      app: pushgateway
   namespaceSelector:
     matchNames:
       - {{ .Values.namespace }}
   endpoints:
-    - port: postgres
+    - port: metrics
       interval: {{ .Values.monitoring.serviceMonitor.interval }}
+      honorLabels: true
 {{- end }}

@@ -1,0 +1,63 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cloudsweep-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: cloudsweep.waste
+      interval: 60s
+      rules:
+        - alert: WasteThresholdCrossed
+          expr: sum(cloudsweep_waste_total_inr) > 50000
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "AWS waste exceeds ₹50,000/month"
+            description: >
+              Total monthly AWS waste is ₹{{ $value | humanize }}.
+              Review CloudSweep findings at http://localhost:3000/d/cloudsweep-waste-overview
+
+        - alert: WasteCritical
+          expr: sum(cloudsweep_waste_total_inr) > 100000
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "AWS waste exceeds ₹1,00,000/month — immediate action required"
+            description: >
+              Total monthly AWS waste is ₹{{ $value | humanize }}.
+              This exceeds the critical threshold of ₹1,00,000.
+
+    - name: cloudsweep.health
+      interval: 60s
+      rules:
+        - alert: ScanStale
+          expr: (time() - cloudsweep_last_scan_timestamp) > 691200
+          for: 1h
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "CloudSweep scan is stale — no scan in 8 days"
+            description: >
+              Last scan ran {{ $value | humanizeDuration }} ago.
+              Expected scan frequency: weekly (every 7 days).
+              Check the GitHub Actions scheduled workflow.
+
+        - alert: ScanMissing
+          expr: absent(cloudsweep_last_scan_timestamp)
+          for: 30m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "CloudSweep has never run or metrics are lost"
+            description: >
+              The cloudsweep_last_scan_timestamp metric is missing entirely.
+              Check Pushgateway and scanner CronJob status.

@@ -1,0 +1,36 @@
+---
+# Role: configure-aws
+# Writes ~/.aws/config using the IAM role ARN from Terraform output.
+# Uses Ec2InstanceMetadata as credential source — no long-lived keys stored.
+
+- name: Ensure ~/.aws directory exists
+  ansible.builtin.file:
+    path: /home/ec2-user/.aws
+    state: directory
+    owner: ec2-user
+    group: ec2-user
+    mode: "0700"
+
+- name: Write ~/.aws/config
+  ansible.builtin.template:
+    src: aws-config.j2
+    dest: /home/ec2-user/.aws/config
+    owner: ec2-user
+    group: ec2-user
+    mode: "0600"
+
+- name: Verify scanner role is assumable via instance metadata
+  ansible.builtin.shell: |
+    aws sts get-caller-identity --profile cloudsweep-scanner
+  become: false
+  become_user: ec2-user
+  environment:
+    HOME: /home/ec2-user
+    AWS_CONFIG_FILE: /home/ec2-user/.aws/config
+  register: sts_check
+  changed_when: false
+  failed_when: sts_check.rc != 0
+
+- name: Print assumed role ARN
+  ansible.builtin.debug:
+    msg: "Assumed identity: {{ (sts_check.stdout | from_json).Arn }}"

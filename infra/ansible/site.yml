@@ -1,0 +1,47 @@
+---
+# CloudSweep – master Ansible playbook
+# Usage:
+#   ansible-playbook -i inventory.sh site.yml \
+#     --private-key ~/.ssh/<key>.pem \
+#     --extra-vars "key_file=~/.ssh/<key>.pem"
+
+- name: Provision and harden CloudSweep server
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    ansible_ssh_common_args: >-
+      -o StrictHostKeyChecking=no
+      -o UserKnownHostsFile=/dev/null
+      -o ConnectTimeout=30
+
+  roles:
+    - role: bootstrap-server
+      tags: [bootstrap]
+
+    - role: harden-server
+      tags: [harden]
+
+    - role: install-k3s
+      tags: [k3s]
+
+    - role: install-jenkins
+      tags: [jenkins]
+
+    - role: configure-aws
+      tags: [aws]
+
+  post_tasks:
+    - name: Print summary
+      ansible.builtin.debug:
+        msg:
+          - "==========================================="
+          - "  CloudSweep server is ready!"
+          - "==========================================="
+          - "  SSH    : ssh -i <key>.pem ec2-user@{{ ansible_host }}"
+          - "  k3s    : export KUBECONFIG=$(pwd)/kubeconfig-{{ inventory_hostname }}.yaml"
+          - "  Jenkins: http://{{ ansible_host }}:8081"
+          - "  IAM    : {{ iam_role_arn }}"
+          - "  S3     : {{ reports_bucket }}"
+          - "==========================================="

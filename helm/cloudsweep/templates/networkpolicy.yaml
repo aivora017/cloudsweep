@@ -28,10 +28,19 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.postgres.port }}
+    # AWS API endpoints (ec2, rds, cloudwatch, ce, sts, s3)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
       ports:
         - protocol: TCP
           port: 443
+    # Prometheus Pushgateway (metrics push after each scan)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: pushgateway
+      ports:
+        - protocol: TCP
+          port: 9091
 {{- end }}

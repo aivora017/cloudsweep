@@ -1,0 +1,56 @@
+---
+# Role: install-jenkins
+# Runs Jenkins LTS in Docker with a persistent volume.
+# Installs Docker CLI inside the container so Jenkins can run Docker agents.
+
+- name: Create Jenkins data directory
+  ansible.builtin.file:
+    path: /opt/jenkins_home
+    state: directory
+    owner: "1000"
+    group: "1000"
+    mode: "0755"
+
+- name: Pull Jenkins LTS image
+  community.docker.docker_image:
+    name: jenkins/jenkins:lts
+    source: pull
+
+- name: Run Jenkins container
+  community.docker.docker_container:
+    name: jenkins
+    image: jenkins/jenkins:lts
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "8081:8080"
+      - "50000:50000"
+    volumes:
+      - "/opt/jenkins_home:/var/jenkins_home"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    env:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+
+- name: Install Docker CLI inside Jenkins container
+  ansible.builtin.shell: |
+    docker exec -u root jenkins bash -c "
+      apt-get update -qq &&
+      apt-get install -y -qq docker.io
+    "
+  register: docker_install
+  changed_when: "'Setting up docker.io' in docker_install.stdout"
+  retries: 3
+  delay: 10
+
+- name: Wait for Jenkins to become available
+  ansible.builtin.uri:
+    url: "http://localhost:8081/login"
+    status_code: 200
+  register: jenkins_up
+  retries: 20
+  delay: 15
+  until: jenkins_up.status == 200
+
+- name: Print Jenkins initial admin password path
+  ansible.builtin.debug:
+    msg: "Jenkins is up at http://{{ ansible_host }}:8081 — initial password: docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword"

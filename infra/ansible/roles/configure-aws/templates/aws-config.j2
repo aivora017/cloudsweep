@@ -1,0 +1,9 @@
+[default]
+region = {{ aws_region }}
+output = json
+
+[profile cloudsweep-scanner]
+role_arn = {{ iam_role_arn }}
+credential_source = Ec2InstanceMetadata
+region = {{ aws_region }}
+output = json

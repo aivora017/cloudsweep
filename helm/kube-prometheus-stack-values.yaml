@@ -1,0 +1,89 @@
+# Values for kube-prometheus-stack Helm chart
+# Install with:
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm repo update
+#   helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+#     --namespace monitoring --create-namespace \
+#     -f helm/kube-prometheus-stack-values.yaml
+
+grafana:
+  enabled: true
+  adminPassword: "cloudsweep-admin"
+  service:
+    type: ClusterIP
+    port: 80
+  # Auto-load dashboards from ConfigMaps labelled grafana_dashboard=1
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+  grafana.ini:
+    server:
+      root_url: "http://localhost:3000"
+    date_formats:
+      default_timezone: Asia/Kolkata
+
+prometheus:
+  prometheusSpec:
+    # Scrape ServiceMonitors from all namespaces
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+    # Scrape PrometheusRules from all namespaces
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector: {}
+    ruleNamespaceSelector: {}
+    # 12 weeks retention for trend dashboards
+    retention: 12w
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+alertmanager:
+  enabled: true
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ["alertname", "severity"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: slack-default
+    receivers:
+      - name: "null"
+      - name: slack-default
+        slack_configs:
+          - api_url: "https://hooks.slack.com/services/PLACEHOLDER/PLACEHOLDER/PLACEHOLDER"
+            channel: "#cloudsweep-alerts"
+            title: "[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}"
+            text: >-
+              {{ range .Alerts }}
+              *Alert:* {{ .Annotations.summary }}
+              *Details:* {{ .Annotations.description }}
+              {{ end }}
+            send_resolved: true
+
+# Disable components not needed
+kubeStateMetrics:
+  enabled: true
+nodeExporter:
+  enabled: false
+kubeApiServer:
+  enabled: false
+kubelet:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false
