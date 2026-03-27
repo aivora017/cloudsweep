@@ -1,24 +1,8 @@
-##############################################################################
-# Module: s3-reports
-# Creates an S3 bucket for CloudSweep scan reports with:
-#   - 90-day lifecycle expiry rule
-#   - Server-side encryption (AES-256)
-#   - Versioning enabled
-#   - Public access fully blocked
-##############################################################################
-
 data "aws_caller_identity" "current" {}
 
 resource "aws_s3_bucket" "reports" {
-  # Bucket name must be globally unique – include account ID as suffix
   bucket        = "cloudsweep-reports-${var.env}-${data.aws_caller_identity.current.account_id}"
   force_destroy = var.env != "prod"
-
-  tags = {
-    Project     = "cloudsweep"
-    Environment = var.env
-    ManagedBy   = "terraform"
-  }
 }
 
 resource "aws_s3_bucket_versioning" "reports" {
@@ -74,7 +58,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "reports" {
   }
 }
 
-# Bucket policy: allow scanner role to put/get objects, deny all else
 data "aws_iam_policy_document" "reports_bucket_policy" {
   statement {
     sid    = "DenyInsecureTransport"
@@ -97,8 +80,7 @@ data "aws_iam_policy_document" "reports_bucket_policy" {
 }
 
 resource "aws_s3_bucket_policy" "reports" {
-  bucket = aws_s3_bucket.reports.id
-  policy = data.aws_iam_policy_document.reports_bucket_policy.json
-
+  bucket     = aws_s3_bucket.reports.id
+  policy     = data.aws_iam_policy_document.reports_bucket_policy.json
   depends_on = [aws_s3_bucket_public_access_block.reports]
 }

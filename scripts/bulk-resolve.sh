@@ -1,16 +1,7 @@
 #!/usr/bin/env bash
-##############################################################################
 # bulk-resolve.sh
-#
-# Marks all currently active findings as resolved after a cleanup sprint.
-# Optionally filters by resource type or region.
-#
-# Usage:
-#   ./scripts/bulk-resolve.sh                             # resolve everything
-#   ./scripts/bulk-resolve.sh --type EC2                  # resolve EC2 only
-#   ./scripts/bulk-resolve.sh --region us-east-1          # resolve one region
-#   ./scripts/bulk-resolve.sh --type EBS --dry-run        # preview only
-##############################################################################
+# Marks all active findings as resolved after a cleanup sprint.
+# Usage: ./scripts/bulk-resolve.sh [--type EC2] [--region us-east-1] [--dry-run]
 
 set -euo pipefail
 
@@ -31,13 +22,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo ""
-echo "============================================"
-echo "  CloudSweep bulk-resolve"
-echo "  type   : ${RESOURCE_TYPE:-ALL}"
-echo "  region : ${REGION_FILTER:-ALL}"
-echo "  dry-run: ${DRY_RUN}"
-echo "============================================"
+echo "bulk-resolve  type=${RESOURCE_TYPE:-ALL}  region=${REGION_FILTER:-ALL}  dry-run=${DRY_RUN}"
 echo ""
 
 # Build WHERE clause

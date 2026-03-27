@@ -1,13 +1,7 @@
 #!/usr/bin/env bash
-##############################################################################
 # cost-report.sh
-#
-# Generates a weekly CSV waste report from the PostgreSQL waste_trend_12w view.
-# Output is saved to docs/reports/ and printed to stdout.
-#
-# Usage:
-#   ./scripts/cost-report.sh [--namespace cloudsweep] [--weeks 4] [--output docs/reports/]
-##############################################################################
+# Generates a CSV waste report from the PostgreSQL waste_trend_12w view.
+# Usage: ./scripts/cost-report.sh [--namespace cloudsweep] [--weeks 4] [--output docs/reports/]
 
 set -euo pipefail
 
@@ -61,7 +55,6 @@ kubectl exec -n "${NAMESPACE}" "${POSTGRES_POD}" -- \
 ROW_COUNT=$(tail -n +2 "${CSV_FILE}" | wc -l | tr -d ' ')
 
 echo "Weekly summary (top 10 by waste):"
-echo "----------------------------------------------"
 kubectl exec -n "${NAMESPACE}" "${POSTGRES_POD}" -- \
   psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
   -c "

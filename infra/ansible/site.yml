@@ -36,12 +36,9 @@
     - name: Print summary
       ansible.builtin.debug:
         msg:
-          - "==========================================="
-          - "  CloudSweep server is ready!"
-          - "==========================================="
-          - "  SSH    : ssh -i <key>.pem ec2-user@{{ ansible_host }}"
-          - "  k3s    : export KUBECONFIG=$(pwd)/kubeconfig-{{ inventory_hostname }}.yaml"
-          - "  Jenkins: http://{{ ansible_host }}:8081"
-          - "  IAM    : {{ iam_role_arn }}"
-          - "  S3     : {{ reports_bucket }}"
-          - "==========================================="
+          - "Server ready: {{ ansible_host }}"
+          - "SSH    : ssh -i <key>.pem ec2-user@{{ ansible_host }}"
+          - "k3s    : export KUBECONFIG=$(pwd)/kubeconfig-{{ inventory_hostname }}.yaml"
+          - "Jenkins: http://{{ ansible_host }}:8081"
+          - "IAM    : {{ iam_role_arn }}"
+          - "S3     : {{ reports_bucket }}"

@@ -31,25 +31,6 @@ except ImportError:
     HAS_METRICS = False
 
 
-def _strtobool(value: str) -> bool:
-    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
-def _has_aws_credentials() -> bool:
-    return bool(
-        os.getenv('AWS_ACCESS_KEY_ID') and os.getenv('AWS_SECRET_ACCESS_KEY')
-    )
-
-
-def _resolve_mock_findings_path(configured_path: str) -> str:
-    if os.path.exists(configured_path):
-        return configured_path
-
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    fallback_path = os.path.join(repo_root, 'findings-mock.json')
-    return fallback_path
-
-
 @click.command()
 @click.option('--regions',
               default='ap-south-1,us-east-1',
@@ -65,16 +46,14 @@ def _resolve_mock_findings_path(configured_path: str) -> str:
 def main(regions, output, no_db, slack, dry_run):
     region_list = [r.strip() for r in regions.split(',')]
 
-    use_mock_findings = _strtobool(os.getenv('USE_MOCK_FINDINGS', 'false'))
-    configured_mock_findings_path = os.getenv(
-        'MOCK_FINDINGS_PATH',
-        '/app/findings-mock.json'
-    )
-    mock_findings_path = _resolve_mock_findings_path(
-        configured_mock_findings_path
-    )
+    use_mock_findings = os.getenv('USE_MOCK_FINDINGS', '').strip().lower() in ('1', 'true', 'yes')
 
-    if dry_run and not use_mock_findings and not _has_aws_credentials():
+    mock_findings_path = os.getenv('MOCK_FINDINGS_PATH', '/app/findings-mock.json')
+    if not os.path.exists(mock_findings_path):
+        mock_findings_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'findings-mock.json')
+
+    has_aws_creds = bool(os.getenv('AWS_ACCESS_KEY_ID') and os.getenv('AWS_SECRET_ACCESS_KEY'))
+    if dry_run and not use_mock_findings and not has_aws_creds:
         use_mock_findings = True
         click.echo(
             'Dry-run without AWS credentials detected; '

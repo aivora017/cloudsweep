@@ -1,15 +1,3 @@
-##############################################################################
-# CloudSweep – Phase 5 – Infrastructure as Code
-#
-# Providers : AWS + GCP
-# Backend   : S3 + DynamoDB (bootstrap manually — see variables.tf)
-#
-# Bootstrap the remote-state backend before the first `terraform init`:
-#   See the commands in variables.tf under "Remote-state backend".
-# Then update the bucket/table names in the backend block below and run:
-#   terraform init -backend-config="bucket=<your-bucket>"
-##############################################################################
-
 terraform {
   required_version = ">= 1.6.0"
 
@@ -24,26 +12,16 @@ terraform {
     }
   }
 
-  # ---------------------------------------------------------------------------
-  # Remote state backend (S3 + DynamoDB lock).
-  # The bucket must exist before `terraform init`.
-  # Override at init time:
-  #   terraform init \
-  #     -backend-config="bucket=cloudsweep-tfstate-<account-id>" \
-  #     -backend-config="region=ap-south-1"
-  # ---------------------------------------------------------------------------
+  # S3 bucket must exist before terraform init.
+  # Run infra-up.sh which handles the bootstrap, or see README.
   backend "s3" {
     key            = "cloudsweep/terraform.tfstate"
     region         = "ap-south-1"
     dynamodb_table = "cloudsweep-tflock"
     encrypt        = true
-    # bucket is provided at init time via -backend-config
   }
 }
 
-# ---------------------------------------------------------------------------
-# Providers
-# ---------------------------------------------------------------------------
 provider "aws" {
   region = var.aws_region
 
@@ -61,18 +39,13 @@ provider "google" {
   region  = var.gcp_region
 }
 
-# ---------------------------------------------------------------------------
-# Modules
-# ---------------------------------------------------------------------------
 module "iam_scanner_role" {
   source = "./modules/iam-scanner-role"
-
-  env = var.env
+  env    = var.env
 }
 
 module "s3_reports" {
   source = "./modules/s3-reports"
-
   env    = var.env
   region = var.aws_region
 }
@@ -91,9 +64,8 @@ module "ec2_server" {
 }
 
 module "gcp_backup" {
-  source = "./modules/gcp-backup"
-
-  env        = var.env
+  source      = "./modules/gcp-backup"
+  env         = var.env
   gcp_project = var.gcp_project
   gcp_region  = var.gcp_region
 }

@@ -1,24 +1,13 @@
 #!/usr/bin/env bash
-##############################################################################
-# infra-down.sh  —  Tear down the full CloudSweep infrastructure
-#
-# Steps:
-#   1. helm uninstall  → remove CloudSweep + monitoring charts
-#   2. terraform destroy → terminate EC2, delete IAM role, S3 bucket, GCP bucket
-#
-# Usage:
-#   ./scripts/infra-down.sh [--env dev|prod] [--gcp-project my-project] \
-#                           [--aws-region ap-south-1] [--auto-approve]
-##############################################################################
+# infra-down.sh
+# Tears down all CloudSweep infrastructure (Helm uninstall + terraform destroy).
+# Usage: ./scripts/infra-down.sh --gcp-project <project> [--env dev|prod] [--auto-approve]
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TF_DIR="${REPO_ROOT}/infra/terraform"
 
-# ---------------------------------------------------------------------------
-# Defaults
-# ---------------------------------------------------------------------------
 ENV="dev"
 GCP_PROJECT=""
 AWS_REGION="ap-south-1"
@@ -26,9 +15,6 @@ KEY_NAME=""
 AUTO_APPROVE=""
 KUBECONFIG_FILE="${REPO_ROOT}/kubeconfig-cloudsweep_server.yaml"
 
-# ---------------------------------------------------------------------------
-# Argument parsing
-# ---------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --env)          ENV="$2";          shift 2 ;;
@@ -45,17 +31,9 @@ if [[ -z "${GCP_PROJECT}" ]]; then
   exit 1
 fi
 
-echo ""
-echo "=========================================="
-echo "  CloudSweep infra-down"
-echo "  env    : ${ENV}"
-echo "  region : ${AWS_REGION}"
-echo "=========================================="
+echo "infra-down  env=${ENV}  region=${AWS_REGION}"
 echo ""
 
-# ---------------------------------------------------------------------------
-# Step 1: Helm uninstall
-# ---------------------------------------------------------------------------
 echo "[1/2] Uninstalling Helm charts..."
 
 if [[ -f "${KUBECONFIG_FILE}" ]]; then
@@ -72,9 +50,6 @@ kubectl delete -f "${REPO_ROOT}/infra/k8s/pushgateway.yaml" 2>/dev/null || true
 
 helm uninstall kube-prometheus-stack --namespace monitoring 2>/dev/null && echo "  kube-prometheus-stack uninstalled" || echo "  kube-prometheus-stack not found, skipping"
 
-# ---------------------------------------------------------------------------
-# Step 2: Terraform destroy
-# ---------------------------------------------------------------------------
 echo "[2/2] Terraform destroy..."
 
 TF_VARS=(
@@ -87,6 +62,4 @@ TF_VARS=(
 terraform -chdir="${TF_DIR}" destroy ${AUTO_APPROVE} "${TF_VARS[@]}"
 
 echo ""
-echo "=========================================="
-echo "  All infrastructure destroyed."
-echo "=========================================="
+echo "Done. All infrastructure destroyed."

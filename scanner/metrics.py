@@ -1,18 +1,12 @@
 import os
 import time
-from prometheus_client import (
-    CollectorRegistry,
-    Gauge,
-    Histogram,
-    push_to_gateway,
-)
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 
 PUSHGATEWAY_URL = os.getenv('PUSHGATEWAY_URL', 'http://pushgateway:9091')
 JOB_NAME = 'cloudsweep_scanner'
 
 
 def push_metrics(all_findings, summary, scan_duration_seconds):
-    """Push scan metrics to Prometheus Pushgateway."""
     registry = CollectorRegistry()
 
     waste_total = Gauge(
@@ -21,27 +15,23 @@ def push_metrics(all_findings, summary, scan_duration_seconds):
         ['resource_type', 'region'],
         registry=registry,
     )
-
     findings_total = Gauge(
         'cloudsweep_findings_total',
         'Number of active waste findings by resource type',
         ['resource_type'],
         registry=registry,
     )
-
     scan_duration = Gauge(
         'cloudsweep_scan_duration_seconds',
         'Time taken to complete the scan in seconds',
         registry=registry,
     )
-
     last_scan = Gauge(
         'cloudsweep_last_scan_timestamp',
         'Unix timestamp of the last completed scan',
         registry=registry,
     )
 
-    # Aggregate waste and counts by resource_type + region
     waste_by_type_region = {}
     count_by_type = {}
 

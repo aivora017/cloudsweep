@@ -1,10 +1,3 @@
-##############################################################################
-# Module: ec2-server
-# Provisions a t2.micro EC2 instance that runs k3s + Jenkins.
-# The instance carries the CloudSweep scanner IAM role via an instance profile.
-##############################################################################
-
-# Latest Amazon Linux 2023 AMI in the target region
 data "aws_ami" "al2023" {
   most_recent = true
   owners      = ["amazon"]
@@ -25,9 +18,6 @@ data "aws_ami" "al2023" {
   }
 }
 
-# ---------------------------------------------------------------------------
-# Networking: default VPC + first available subnet
-# ---------------------------------------------------------------------------
 data "aws_vpc" "default" {
   default = true
 }
@@ -39,15 +29,11 @@ data "aws_subnets" "default" {
   }
 }
 
-# ---------------------------------------------------------------------------
-# Security group
-# ---------------------------------------------------------------------------
 resource "aws_security_group" "server" {
   name        = "cloudsweep-server-${var.env}"
-  description = "CloudSweep server: SSH + k3s API + Jenkins"
+  description = "CloudSweep server: SSH, k3s API, Jenkins, Grafana"
   vpc_id      = data.aws_vpc.default.id
 
-  # SSH
   ingress {
     description = "SSH"
     from_port   = 22
@@ -56,7 +42,6 @@ resource "aws_security_group" "server" {
     cidr_blocks = [var.allowed_ssh_cidr]
   }
 
-  # k3s API server
   ingress {
     description = "k3s API"
     from_port   = 6443
@@ -65,16 +50,14 @@ resource "aws_security_group" "server" {
     cidr_blocks = [var.allowed_ssh_cidr]
   }
 
-  # Jenkins
   ingress {
-    description = "Jenkins web UI"
+    description = "Jenkins"
     from_port   = 8081
     to_port     = 8081
     protocol    = "tcp"
     cidr_blocks = [var.allowed_ssh_cidr]
   }
 
-  # Grafana (via kubectl port-forward tunnelled by Ansible)
   ingress {
     description = "Grafana"
     from_port   = 3000
@@ -84,7 +67,6 @@ resource "aws_security_group" "server" {
   }
 
   egress {
-    description = "Allow all outbound"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -92,16 +74,10 @@ resource "aws_security_group" "server" {
   }
 
   tags = {
-    Name        = "cloudsweep-server-${var.env}"
-    Project     = "cloudsweep"
-    Environment = var.env
-    ManagedBy   = "terraform"
+    Name = "cloudsweep-server-${var.env}"
   }
 }
 
-# ---------------------------------------------------------------------------
-# EC2 instance
-# ---------------------------------------------------------------------------
 resource "aws_instance" "server" {
   ami                    = data.aws_ami.al2023.id
   instance_type          = var.instance_type
@@ -117,7 +93,6 @@ resource "aws_instance" "server" {
     encrypted             = true
   }
 
-  # Minimal user-data: set hostname and enable SSM for emergency access
   user_data = <<-EOF
     #!/bin/bash
     hostnamectl set-hostname cloudsweep-${var.env}
@@ -126,10 +101,7 @@ resource "aws_instance" "server" {
   EOF
 
   tags = {
-    Name        = "cloudsweep-server-${var.env}"
-    Project     = "cloudsweep"
-    Environment = var.env
-    ManagedBy   = "terraform"
+    Name = "cloudsweep-server-${var.env}"
   }
 
   lifecycle {
@@ -137,15 +109,11 @@ resource "aws_instance" "server" {
   }
 }
 
-# Elastic IP so the public address survives stop/start
 resource "aws_eip" "server" {
   instance = aws_instance.server.id
   domain   = "vpc"
 
   tags = {
-    Name        = "cloudsweep-server-${var.env}"
-    Project     = "cloudsweep"
-    Environment = var.env
-    ManagedBy   = "terraform"
+    Name = "cloudsweep-server-${var.env}"
   }
 }

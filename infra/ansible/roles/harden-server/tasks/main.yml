@@ -13,9 +13,6 @@
       - fail2ban
     state: present
 
-# ---------------------------------------------------------------------------
-# UFW firewall
-# ---------------------------------------------------------------------------
 - name: Reset UFW to defaults
   community.general.ufw:
     state: reset
@@ -60,9 +57,6 @@
   community.general.ufw:
     state: enabled
 
-# ---------------------------------------------------------------------------
-# fail2ban
-# ---------------------------------------------------------------------------
 - name: Write fail2ban jail.local
   ansible.builtin.copy:
     dest: /etc/fail2ban/jail.local
@@ -87,9 +81,6 @@
     enabled: true
     state: restarted
 
-# ---------------------------------------------------------------------------
-# SSH hardening
-# ---------------------------------------------------------------------------
 - name: Disable root SSH login
   ansible.builtin.lineinfile:
     path: /etc/ssh/sshd_config

@@ -5,6 +5,7 @@ __pycache__/
 venv/
 env/
 .env
+.env.*
 .DS_Store
 *.json
 .pytest_cache/
@@ -13,3 +14,16 @@ htmlcov/
 dist/
 build/
 *.egg
+
+# Terraform — state and variable files can contain real secrets
+*.tfstate
+*.tfstate.backup
+*.tfvars
+.terraform/
+.terraform.lock.hcl
+
+# SSH / TLS private keys
+*.pem
+*.key
+*.p12
+*.pfx

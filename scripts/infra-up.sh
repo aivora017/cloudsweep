@@ -1,23 +1,7 @@
 #!/usr/bin/env bash
-##############################################################################
-# infra-up.sh  —  Provision the full CloudSweep infrastructure in one command
-#
-# Steps:
-#   1. terraform apply  → EC2, IAM role, S3 bucket, GCP bucket
-#   2. Wait for SSH to become available on the new EC2 instance
-#   3. ansible-playbook → bootstrap, harden, k3s, Jenkins, configure-aws
-#   4. helm install     → CloudSweep chart + monitoring stack
-#
-# Usage:
-#   ./scripts/infra-up.sh [--env dev|prod] [--key-file ~/.ssh/key.pem] \
-#                         [--key-name my-aws-key] [--gcp-project my-project]
-#
-# Prerequisites:
-#   - terraform, ansible, helm, kubectl, aws CLI, jq installed locally
-#   - AWS credentials configured (env vars or ~/.aws/credentials)
-#   - GCP credentials configured (gcloud auth application-default login)
-#   - S3 backend bucket + DynamoDB lock table bootstrapped (see variables.tf)
-##############################################################################
+# infra-up.sh
+# Provisions the full CloudSweep infrastructure: Terraform, Ansible, Helm.
+# Usage: ./scripts/infra-up.sh --key-name <keypair> --gcp-project <project> [--env dev|prod]
 
 set -euo pipefail
 
@@ -25,9 +9,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TF_DIR="${REPO_ROOT}/infra/terraform"
 ANSIBLE_DIR="${REPO_ROOT}/infra/ansible"
 
-# ---------------------------------------------------------------------------
-# Defaults
-# ---------------------------------------------------------------------------
 ENV="dev"
 KEY_FILE="${HOME}/.ssh/id_rsa"
 KEY_NAME=""
@@ -36,9 +17,6 @@ AWS_REGION="ap-south-1"
 INSTANCE_TYPE="t2.micro"
 TF_BACKEND_BUCKET=""
 
-# ---------------------------------------------------------------------------
-# Argument parsing
-# ---------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --env)           ENV="$2";             shift 2 ;;
@@ -52,9 +30,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ---------------------------------------------------------------------------
-# Validation
-# ---------------------------------------------------------------------------
 if [[ -z "${KEY_NAME}" ]]; then
   echo "ERROR: --key-name is required (name of your AWS EC2 key pair)"
   exit 1
@@ -68,20 +43,9 @@ if [[ ! -f "${KEY_FILE}" ]]; then
   exit 1
 fi
 
-echo ""
-echo "=========================================="
-echo "  CloudSweep infra-up"
-echo "  env           : ${ENV}"
-echo "  region        : ${AWS_REGION}"
-echo "  instance_type : ${INSTANCE_TYPE}"
-echo "  key_name      : ${KEY_NAME}"
-echo "  gcp_project   : ${GCP_PROJECT}"
-echo "=========================================="
+echo "infra-up  env=${ENV}  region=${AWS_REGION}  instance=${INSTANCE_TYPE}  key=${KEY_NAME}  gcp=${GCP_PROJECT}"
 echo ""
 
-# ---------------------------------------------------------------------------
-# Step 1: Terraform apply
-# ---------------------------------------------------------------------------
 echo "[1/4] Terraform apply..."
 
 TF_INIT_ARGS=""
@@ -108,9 +72,6 @@ echo "  iam_role_arn   : ${IAM_ROLE_ARN}"
 echo "  reports_bucket : ${REPORTS_BUCKET}"
 echo ""
 
-# ---------------------------------------------------------------------------
-# Step 2: Wait for SSH
-# ---------------------------------------------------------------------------
 echo "[2/4] Waiting for SSH on ${SERVER_IP}:22..."
 
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10"
@@ -128,9 +89,6 @@ until ssh ${SSH_OPTS} -i "${KEY_FILE}" "ec2-user@${SERVER_IP}" "echo ok" &>/dev/
 done
 echo "  SSH is up."
 
-# ---------------------------------------------------------------------------
-# Step 3: Ansible
-# ---------------------------------------------------------------------------
 echo "[3/4] Running Ansible playbook..."
 
 ansible-playbook \
@@ -146,9 +104,6 @@ if [[ -f "${KUBECONFIG_FILE}" ]]; then
   echo "  KUBECONFIG set to ${KUBECONFIG_FILE}"
 fi
 
-# ---------------------------------------------------------------------------
-# Step 4: Helm installs
-# ---------------------------------------------------------------------------
 echo "[4/4] Deploying Helm charts..."
 
 # Ensure repos are present
@@ -179,20 +134,10 @@ helm upgrade --install cloudsweep "${REPO_ROOT}/helm/cloudsweep" \
   --timeout 5m
 
 echo ""
-echo "=========================================="
-echo "  Done!  CloudSweep is running."
-echo "=========================================="
+echo "Done. CloudSweep is running."
 echo "  Server IP  : ${SERVER_IP}"
 echo "  IAM role   : ${IAM_ROLE_ARN}"
 echo "  S3 bucket  : ${REPORTS_BUCKET}"
 echo ""
-echo "  kubectl port-forward svc/kube-prometheus-stack-grafana 3000:80 -n monitoring"
-echo "  # open http://localhost:3000  —  admin / cloudsweep-admin"
-echo ""
-echo "  Jenkins   : http://${SERVER_IP}:8081"
-echo "  Simulate policy (verify no delete):"
-echo "    aws iam simulate-principal-policy \\"
-echo "      --policy-source-arn ${IAM_ROLE_ARN} \\"
-echo "      --action-names ec2:TerminateInstances \\"
-echo "      --resource-arns '*'"
-echo "=========================================="
+echo "  Grafana:  kubectl port-forward svc/kube-prometheus-stack-grafana 3000:80 -n monitoring"
+echo "  Jenkins:  http://${SERVER_IP}:8081"

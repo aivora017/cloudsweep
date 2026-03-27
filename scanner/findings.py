@@ -14,11 +14,9 @@ def is_free_tier_eligible(vol):
     created_at = vol.get('CreateTime')
     if not created_at:
         return False
-    age_days = (
-        datetime.now(
-            timezone.utc) -
-        created_at.replace(
-            tzinfo=timezone.utc)).days
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    age_days = (datetime.now(timezone.utc) - created_at).days
     return age_days < 365
 
 
@@ -54,15 +52,11 @@ def scan_idle_ec2(session, region):
             if avg_cpu < cpu_idle_threshold:
                 cost = get_ec2_cost(instance_type)
                 tags = {t['Key']: t['Value'] for t in instance.get('Tags', [])}
-
                 findings.append({
                     'resource_id': instance_id,
                     'resource_type': 'EC2',
                     'region': region,
-                    'reason': (
-                        f'CPU avg {avg_cpu:.1f}% over 7 days '
-                        f'(threshold: {cpu_idle_threshold:.1f}%)'
-                    ),
+                    'reason': f'CPU avg {avg_cpu:.1f}% over 7 days (threshold: {cpu_idle_threshold:.1f}%)',
                     'monthly_cost_usd': cost,
                     'monthly_cost_inr': convert_usd_to_inr(cost),
                     'tags': tags,
@@ -83,13 +77,12 @@ def scan_orphaned_ebs(session, region):
     for vol in response['Volumes']:
         vol_type = vol.get('VolumeType', 'gp2')
 
-        # Skip if under free tier (30GB for first 12 months)
+        # skip free-tier eligible volumes (<=30GB, account under 12 months old)
         if vol['Size'] <= 30 and is_free_tier_eligible(vol):
             continue
 
         cost = get_ebs_cost(vol['Size'], vol_type)
         tags = {t['Key']: t['Value'] for t in vol.get('Tags', [])}
-
         findings.append({
             'resource_id': vol['VolumeId'],
             'resource_type': 'EBS',
@@ -108,10 +101,7 @@ def scan_unused_eip(session, region):
     ec2 = session.client('ec2', region_name=region)
     findings = []
 
-    response = ec2.describe_addresses()
-
-    for eip in response['Addresses']:
-        # Only charge if not associated with instance
+    for eip in ec2.describe_addresses()['Addresses']:
         if (
             not eip.get('InstanceId')
             and not eip.get('NetworkInterfaceId')
@@ -145,10 +135,6 @@ def scan_underused_rds(session, region):
         db_id = db['DBInstanceIdentifier']
         db_class = db['DBInstanceClass']
 
-        # Estimate RDS cost based on instance class
-        # RDS pricing is handled by scanner.pricing module
-
-        # Check if database has low connections (idle indicator)
         try:
             metrics = cw.get_metric_statistics(
                 Namespace='AWS/RDS',
@@ -162,10 +148,7 @@ def scan_underused_rds(session, region):
 
             datapoints = metrics.get('Datapoints', [])
             if datapoints:
-                avg_connections = (
-                    sum(p.get('Average', 0) for p in datapoints)
-                    / len(datapoints)
-                )
+                avg_connections = sum(p.get('Average', 0) for p in datapoints) / len(datapoints)
             else:
                 avg_connections = 0
 
@@ -176,10 +159,7 @@ def scan_underused_rds(session, region):
                     'resource_id': db_id,
                     'resource_type': 'RDS',
                     'region': region,
-                    'reason': (
-                        f'Avg {avg_connections:.1f} DB connections/day '
-                        'over 7 days (threshold: 5.0)'
-                    ),
+                    'reason': f'Avg {avg_connections:.1f} DB connections/day over 7 days (threshold: 5.0)',
                     'monthly_cost_usd': cost,
                     'monthly_cost_inr': convert_usd_to_inr(cost),
                     'tags': tags,
@@ -207,20 +187,14 @@ def scan_old_snapshots(session, region):
 
         if snap_start_time < cutoff_date:
             snap_size_gb = snapshot['VolumeSize']
-            snap_cost = get_snapshot_cost(snap_size_gb)
-
             tags = {t['Key']: t['Value'] for t in snapshot.get('Tags', [])}
-
             findings.append({
                 'resource_id': snapshot['SnapshotId'],
                 'resource_type': 'EBS_SNAPSHOT',
                 'region': region,
-                'reason': (
-                    f'{snap_size_gb}GB snapshot created on '
-                    f'{snap_start_time.date()} (older than 30 days)'
-                ),
-                'monthly_cost_usd': snap_cost,
-                'monthly_cost_inr': convert_usd_to_inr(snap_cost),
+                'reason': f'{snap_size_gb}GB snapshot from {snap_start_time.date()} (older than 30 days)',
+                'monthly_cost_usd': get_snapshot_cost(snap_size_gb),
+                'monthly_cost_inr': convert_usd_to_inr(get_snapshot_cost(snap_size_gb)),
                 'tags': tags,
                 'detected_at': datetime.now(timezone.utc).isoformat()
             })
@@ -229,10 +203,8 @@ def scan_old_snapshots(session, region):
 
 
 def scan_unused_eips(session, region):
-    """Backward-compatible alias."""
     return scan_unused_eip(session, region)
 
 
 def scan_idle_rds(session, region):
-    """Backward-compatible alias."""
     return scan_underused_rds(session, region)
